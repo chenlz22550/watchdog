@@ -1,5 +1,7 @@
 # 进程守护 Watchdog
 
+[![build](https://github.com/chenlz22550/watchdog/actions/workflows/build.yml/badge.svg)](https://github.com/chenlz22550/watchdog/actions/workflows/build.yml) [![release](https://img.shields.io/github/v/release/chenlz22550/watchdog)](https://github.com/chenlz22550/watchdog/releases/latest)
+
 Windows 程序守护工具：被监控的程序**退出、假死或端口无响应**时自动重启，并把死亡原因推送到**企业微信机器人**。
 
 - **最低支持 Windows 7 / Server 2008 R2**：用 Go 1.20（最后一个支持 Win7 的版本）编译，只链接系统自带的 `msvcrt.dll`，不需要装 VC 运行库，也不需要 KB2999226 补丁。
@@ -51,7 +53,7 @@ Windows 程序守护工具：被监控的程序**退出、假死或端口无响�
 
 ## 使用
 
-1. 下载或自行编译 `watchdog.exe`，按系统位数放入对应的 `sciter.dll`（见下文），两个文件放在同一目录。
+1. 从 [Releases](https://github.com/chenlz22550/watchdog/releases/latest) 下载对应位数的 zip（已包含 `sciter.dll`）并解压；也可以自行编译，再按系统位数放入对应的 `sciter.dll`（见下文）。
 2. 运行 `watchdog.exe`，在"设置"里填写企业微信机器人 Webhook，点"测试推送"确认能收到。
 3. 点"自动导入"选择正在运行的程序，或点"添加程序"手动添加。
 
@@ -69,9 +71,17 @@ brew install mingw-w64
 WEBHOOK='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...' ./build.sh
 ```
 
-产物在 `dist/x64` 和 `dist/x86`。`build.sh` 会检查 exe 是否误依赖了 UCRT（`api-ms-win-crt-*.dll`），避免在未打补丁的 Win7 上无法启动。
+产物在 `dist/x64` 和 `dist/x86`。可选 `VERSION=v1.2.3` 指定编译进程序的版本号。`build.sh` 会检查 exe 是否误依赖了 UCRT（`api-ms-win-crt-*.dll`），避免在未打补丁的 Win7 上无法启动。
 
 **sciter.dll**：使用 Sciter **4.4.x**（项目基于 4.4.8，脚本为 TIScript，不兼容 Sciter 5 / JS 版本）。可从 [sciter-sdk](https://github.com/c-smile/sciter-sdk) 的 4.4.8.x 版本中取 `bin.win/x64/sciter.dll` 或 `bin.win/x32/sciter.dll`。
+
+### 自动发布
+
+GitHub Actions（`.github/workflows/build.yml`）在 Ubuntu 上用 Go 1.20 + mingw-w64 交叉编译：推送到 `main` 会构建并上传产物，推送 `v*` 标签会自动发布 Release（附 x64 / x86 两个 zip 和 SHA256 校验）。
+
+```bash
+git tag v1.0.1 && git push origin v1.0.1
+```
 
 ### 界面预览（macOS）
 

@@ -12,7 +12,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const version = "v1.0.0"
+// version 发布时由 build.sh 用 -X main.version 注入
+var version = "v1.0.0"
 
 //go:embed ui/index.html
 var indexHTML string

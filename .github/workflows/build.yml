@@ -1,0 +1,85 @@
+# 推送到 main：构建并上传产物；推送 v* 标签：构建并发布 Release
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # sciter.dll 固定取自 c-smile/sciter-sdk 的这个提交（Sciter 4.4.8），并校验哈希
+  SCITER_SDK_COMMIT: f33df075d9eb2f8d252cb88f1b2c8096e56197ed
+  SCITER_X64_SHA256: 4d97528e157c55ef1fabe9e37a9697116ab66660d7da6163f90a3a7abf80dd56
+  SCITER_X86_SHA256: 285f3e6a051a7c61845cd7e4d2120781b6bdf411239f70a85c65b38a52d38f28
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go 1.21 起不再支持 Win7，必须用 1.20.x
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.20.14"
+
+      - name: 安装 mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64 binutils-mingw-w64
+
+      - name: 确定版本号
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "VERSION=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: 编译（x64 + x86）
+        run: GO="$(command -v go)" ./build.sh
+
+      - name: 下载 sciter.dll
+        run: |
+          base="https://raw.githubusercontent.com/c-smile/sciter-sdk/$SCITER_SDK_COMMIT/bin.win"
+          curl -fsSL -o dist/x64/sciter.dll "$base/x64/sciter.dll"
+          curl -fsSL -o dist/x86/sciter.dll "$base/x32/sciter.dll"
+          echo "$SCITER_X64_SHA256  dist/x64/sciter.dll" | sha256sum -c -
+          echo "$SCITER_X86_SHA256  dist/x86/sciter.dll" | sha256sum -c -
+
+      - name: 打包
+        run: |
+          mkdir -p out
+          for a in x64 x86; do
+            cp README.md LICENSE "dist/$a/"
+            (cd "dist/$a" && zip -9 -q -r "../../out/watchdog-$VERSION-win-$a.zip" .)
+          done
+          (cd out && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: watchdog-${{ env.VERSION }}
+          path: out/*
+
+      - name: 发布 Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## 下载
+
+          | 文件 | 适用系统 |
+          | --- | --- |
+          | `watchdog-*-win-x64.zip` | 64 位 Windows 7 / Server 2008 R2 及以上（推荐） |
+          | `watchdog-*-win-x86.zip` | 32 位 Windows 7 及以上 |
+
+          解压后直接运行 `watchdog.exe`（需与 `sciter.dll` 在同一目录），在"设置"里填写企业微信机器人 Webhook 并点"测试推送"。
+          配置和日志写在 exe 所在目录，请放在有写权限的位置。
+          EOF
+          gh release create "$GITHUB_REF_NAME" out/* \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes --verify-tag
