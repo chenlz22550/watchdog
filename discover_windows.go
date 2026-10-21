@@ -23,7 +23,7 @@ type Candidate struct {
 	Path      string `json:"path"`
 	Args      string `json:"args"`
 	CmdLine   string `json:"cmdline"`
-	WorkDir   string `json:"workDir"` // 与程序目录相同时为空
+	WorkDir   string `json:"workDir"` // 进程启动时的当前目录，读不到时为程序所在目录
 	PID       int    `json:"pid"`     // 接管的主进程
 	Count     int    `json:"count"`
 	Mem       string `json:"mem"`
@@ -107,12 +107,12 @@ func discoverApps(existing []*AppConfig) (list []Candidate, hidden int, err erro
 			continue
 		}
 
-		cand := Candidate{Path: path, PID: int(pid), Is32: wow, startAt: started}
+		cand := Candidate{Path: path, PID: int(pid), Is32: wow, startAt: started, WorkDir: filepath.Dir(path)}
 		if cmd, cwd, err := readProcessParams(pid, wow); err == nil {
 			cand.CmdLine = strings.TrimSpace(cmd)
 			cand.Args = argsFromCmdLine(cand.CmdLine)
-			cwd = strings.TrimRight(cwd, `\`)
-			if cwd != "" && !samePath(cwd, filepath.Dir(path)) {
+			// 系统目录通常是被服务或计划任务拉起时的默认目录，不是程序真正需要的，改用程序所在目录
+			if cwd = filepath.Clean(cwd); cwd != "." && !strings.HasPrefix(strings.ToLower(cwd)+`\`, sysRoot) {
 				cand.WorkDir = cwd
 			}
 		} else {
@@ -264,13 +264,16 @@ func readProcessParams(pid uint32, targetWow bool) (cmdline, cwd string, err err
 	ptr64 := unsafe.Sizeof(uintptr(0)) == 8
 	var r memReader
 	switch {
+	case targetWow:
+		// 32 位进程读它自己的 32 位 PEB；64 位 PEB 里的当前目录可能不是程序实际使用的
+		r = nativeReader{h: h, x64: false, wow32: true}
 	case ptr64:
-		r = nativeReader{h, true}
-	case currentIsWow64() && !targetWow:
+		r = nativeReader{h: h, x64: true}
+	case currentIsWow64():
 		// 32 位监控器读取 64 位进程，需要走 WOW64 专用接口
 		r = wow64Reader{h}
 	default:
-		r = nativeReader{h, false}
+		r = nativeReader{h: h, x64: false}
 	}
 	return readParams(r)
 }
@@ -283,13 +286,21 @@ type memReader interface {
 }
 
 type nativeReader struct {
-	h   windows.Handle
-	x64 bool
+	h     windows.Handle
+	x64   bool
+	wow32 bool // 目标是 WOW64 进程，取它的 32 位 PEB
 }
 
 func (r nativeReader) is64() bool { return r.x64 }
 
 func (r nativeReader) peb() (uint64, error) {
+	if r.wow32 {
+		var peb32 uintptr
+		if err := windows.NtQueryInformationProcess(r.h, windows.ProcessWow64Information, unsafe.Pointer(&peb32), uint32(unsafe.Sizeof(peb32)), nil); err != nil {
+			return 0, err
+		}
+		return uint64(peb32), nil
+	}
 	var pbi windows.PROCESS_BASIC_INFORMATION
 	if err := windows.NtQueryInformationProcess(r.h, windows.ProcessBasicInformation, unsafe.Pointer(&pbi), uint32(unsafe.Sizeof(pbi)), nil); err != nil {
 		return 0, err

@@ -20,12 +20,6 @@
   /* Windows 版 Sciter 会把收缩宽度容器里的中文逐字折行，短标签一律不换行 */
   .glbl, .gsub, .glim, .legend, .head span, #brand .title, #brand .sub, .toggle, .segbtn { white-space: nowrap; }
 
-  /* 扫描光带：在内容层下方缓慢扫过 */
-  #scan {
-    position: absolute; left: 0; right: 0; top: -140px; height: 140px; z-index: 0;
-    background: linear-gradient(to bottom, rgba(0,166,230,0), rgba(0,166,230,0.07), rgba(0,166,230,0));
-  }
-  #scan.down { top: 100%; transition: top linear 7s; }
   #header, #hline, #main { position: relative; z-index: 1; }
 
   /* ================= 顶栏 ================= */
@@ -85,8 +79,8 @@
   #left { width: *; height: *; flow: vertical; border-spacing: 10px; }
 
   .panel {
-    background: rgba(255,255,255,0.86);
-    border: 1px solid rgba(40,120,210,0.16);
+    background: #FFFFFF;
+    border: 1px solid #DCE6F2;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(30,80,160,0.06);
   }
@@ -117,10 +111,9 @@
   #app-list { height: *; overflow-y: hidden-scroll; flow: vertical; border-spacing: 8px; }
 
   /* ================= 程序卡片 ================= */
-  .card { flow: horizontal; transition: border-color linear 200ms, opacity linear 400ms; }
-  .card.enter { opacity: 0; }
-  .card:hover { border-color: rgba(0,166,230,0.5); box-shadow: 0 0 14px rgba(0,166,230,0.16); }
-  .card .strip { width: 3px; height: *; border-radius: 8px 0 0 8px; background: #C5D0E0; transition: opacity linear 900ms; }
+  .card { flow: horizontal; }
+  .card:hover { border-color: #8CC8EA; }
+  .card .strip { width: 3px; height: *; border-radius: 8px 0 0 8px; background: #C5D0E0; }
   .card .body { width: *; padding: 8px 12px; flow: vertical; border-spacing: 5px; }
   .card .row1 { flow: horizontal; vertical-align: middle; border-spacing: 8px; }
   .card .name { white-space: nowrap; font-size: 13px; font-weight: bold; color: #0E1D38; }
@@ -141,7 +134,7 @@
     border-radius: 9px; font-size: 11px; white-space: nowrap; border: 1px solid;
     flow: horizontal; vertical-align: middle; border-spacing: 5px;
   }
-  .pill .dot { width: 6px; height: 6px; border-radius: 3px; transition: opacity linear 900ms; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 3px; }
   .chip {
     display: inline-block; height: 18px; line-height: 18px; padding: 0 6px;
     border-radius: 4px; font-size: 10px; white-space: nowrap;
@@ -174,9 +167,6 @@
   .pill.stopped  { color: #5A6E8C; border-color: #D3DCE8; background: #F2F5FA; }
   .pill.stopped .dot { background: #93A3BC; }
 
-  /* 呼吸：根元素每 0.9 秒切换一次 beat，所有指示灯一起渐变 */
-  body.beat .pill .dot { opacity: 0.25; }
-  body.beat .st-running .strip, body.beat .st-warning .strip, body.beat .st-backoff .strip, body.beat .st-failed .strip { opacity: 0.4; }
 
   #empty { height: *; flow: vertical; text-align: center; color: #7B8DAA; border-style: dashed; }
   #empty .t { margin-top: *; font-size: 14px; color: #12233F; font-weight: bold; letter-spacing: 2px; }
@@ -217,11 +207,9 @@
   .sc.hot { border-color: rgba(224,138,0,0.45); color: #B26B00; background: #FFF7E6; }
 
   #evp { height: *; flow: vertical; }
-  #live { width: 6px; height: 6px; border-radius: 3px; background: #00A86B; box-shadow: 0 0 5px #00A86B; transition: opacity linear 900ms; }
-  body.beat #live { opacity: 0.2; }
+  #live { width: 6px; height: 6px; border-radius: 3px; background: #00A86B; box-shadow: 0 0 5px #00A86B; }
   #events { height: *; overflow-y: hidden-scroll; padding: 4px 0; }
-  .ev { flow: horizontal; border-spacing: 8px; padding: 4px 12px; transition: background-color linear 1500ms; }
-  .ev.fresh { background: rgba(0,166,230,0.16); }
+  .ev { flow: horizontal; border-spacing: 8px; padding: 4px 12px; }
   .ev:hover { background: #F2F8FD; }
   .ev .mark { width: 2px; height: *; border-radius: 1px; background: #B8C5D8; }
   .ev.ok .mark { background: #00A86B; }
@@ -272,6 +260,7 @@
     transition: border-color linear 150ms;
   }
   input[type=text]:hover { border-color: #9FC7E6; }
+  input[type=text]:empty { color: #A8B5C8; }   /* 为空时显示的示例值 */
   input[type=text]:focus { border-color: #00A6E6; background: #FFFFFF; box-shadow: 0 0 8px rgba(0,166,230,0.3); outline: 0; }
 
   /* 重启策略：二选一分段按钮 */
@@ -356,7 +345,6 @@
 </head>
 <body>
 
-<div #scan></div>
 
 <div #header>
   <div #radar role="window-caption"></div>
@@ -452,7 +440,7 @@
       <div #mode-desc></div>
       <div class="field">
         <label>程序路径</label>
-        <div class="inline"><input type="text" #f-path placeholder="C:\\Apps\\server.exe（支持 .exe / .bat / .cmd）" /><button class="btn" cmd="browse-exe">浏览…</button></div>
+        <div class="inline"><input type="text" #f-path placeholder="C:\Apps\server.exe（支持 .exe / .bat / .cmd）" /><button class="btn" cmd="browse-exe">浏览…</button></div>
       </div>
       <div class="cols">
         <div class="field"><label>启动参数</label><input type="text" #f-args placeholder="原样传递，如 --port 8080" /></div>
@@ -591,11 +579,8 @@ var editMode = "backoff";
 var lastListHtml = "";
 var lastStatesHtml = "";
 var lastEventSeq = -2;
-var seenEventSeq = -1;
 var confirmAction = null;
-var firstRender = true;
 var alertLevel = 0;        // 0 空闲 1 正常 2 异常，用于雷达配色
-var shownNums = {};
 var impList = [];          // 自动导入扫描结果
 var impPicked = {};        // key -> true
 var impMode = "backoff";
@@ -679,22 +664,6 @@ function findApp(id) {
   return null;
 }
 
-/* ---------- 数字滚动 ---------- */
-
-function animateNum(el, key, target) {
-  var from = shownNums[key];
-  if (from === undefined) from = 0;
-  if (from == target) { el.text = fmtInt(target); return; }
-  shownNums[key] = target;
-  var step = 0;
-  el.timer(30ms, function() {
-    step++;
-    var v = from + (target - from) * step / 12.0;
-    el.text = fmtInt(step >= 12 ? target : v);
-    return step < 12;
-  });
-}
-
 /* ---------- 渲染 ---------- */
 
 function kv(k, id, v) {
@@ -704,7 +673,7 @@ function kv(k, id, v) {
 function cardHtml(a) {
   var st = str(a.status);
   var immediate = a.restartMode == "immediate";
-  var h = "<div class='card panel st-" + st + (firstRender ? " enter" : "") + "'><div class='strip'></div><div class='body'>";
+  var h = "<div class='card panel st-" + st + "'><div class='strip'></div><div class='body'>";
 
   h += "<div class='row1'><span class='name'>" + esc(a.name) + "</span>";
   h += "<span class='pill " + st + "'><span class='dot'></span>" + (STATUS_TEXT[st] || st) + "</span>";
@@ -779,13 +748,6 @@ function renderApps() {
   if (html != lastListHtml) {
     $(#app-list).html = html;
     lastListHtml = html;
-    if (firstRender && apps && apps.length) {
-      firstRender = false;
-      lastListHtml = "";   // 下次渲染去掉 enter 类
-      var cards = self.selectAll(".card.enter");
-      for (var k = 0; k < cards.length; ++k)
-        cards[k].timer((80 + k * 90) * 1ms, function() { this.attributes.removeClass("enter"); return false; });
-    }
   }
   if (!apps) return;
   for (var j = 0; j < apps.length; ++j) {
@@ -808,19 +770,11 @@ function renderEvents() {
   var h = "";
   for (var i = 0; i < evs.length; ++i) {
     var e = evs[i];
-    var fresh = (seenEventSeq >= 0 && e.seq > seenEventSeq) ? " fresh" : "";
-    h += "<div class='ev " + e.level + fresh + "'><div class='mark'></div><div class='c'>" +
+    h += "<div class='ev " + e.level + "'><div class='mark'></div><div class='c'>" +
          "<div class='top'><span class='app'>" + esc(e.app) + "</span><span class='time mono'>" + esc(e.time) + "</span></div>" +
          "<div class='txt'>" + esc(e.text) + "</div></div></div>";
   }
-  seenEventSeq = state.eventSeq;
   $(#events).html = h ? h : "<div class='none mono'>NO EVENTS</div>";
-  // 新事件高亮后渐隐
-  $(#events).timer(60ms, function() {
-    var list = self.selectAll(".ev.fresh");
-    for (var k = 0; k < list.length; ++k) list[k].attributes.removeClass("fresh");
-    return false;
-  });
 }
 
 /* ---------- 宿主机遥测 ---------- */
@@ -842,7 +796,7 @@ function renderHost() {
   if (h.memOver) $(#g-mem).attributes.addClass("over"); else $(#g-mem).attributes.removeClass("over");
   $(#host-at).text = h.at ? "UPD " + h.at : "SAMPLING…";
 
-  animateNum($(#c-total), "conns", h.conns);
+  $(#c-total).text = fmtInt(h.conns);
   if (h.connOver) $(#c-total).attributes.addClass("over"); else $(#c-total).attributes.removeClass("over");
   $(#c-sub).text = "/" + fmtInt(h.connLimit) + " · UDP " + fmtInt(h.udp) + " · 峰 " + fmtInt(h.connPeak);
   var pct = h.connLimit > 0 ? h.conns * 100.0 / h.connLimit : 0.0;
@@ -942,7 +896,7 @@ function themeColor(a) {
   return color(0, 166, 230, a);
 }
 
-var radarAngle = 0.0;
+var radarAngle = -0.8;   // 静止的扫描角度，颜色随整体状态变化
 
 function paintRadar(gfx) {
   var (w, h) = this.box(#dimension);
@@ -990,12 +944,6 @@ function paintGrid(gfx) {
   return true;
 }
 
-function sweepScan() {
-  var s = $(#scan);
-  s.attributes.removeClass("down");
-  s.timer(60ms, function() { s.attributes.addClass("down"); return false; });
-}
-
 /* ---------- 主刷新 ---------- */
 
 function refresh() {
@@ -1003,12 +951,13 @@ function refresh() {
   if (!state) return;
   var rs = 0;
   if (state.apps) for (var i = 0; i < state.apps.length; ++i) rs += state.apps[i].restarts;
-  animateNum($(#s-total), "total", state.total);
-  animateNum($(#s-running), "running", state.running);
-  animateNum($(#s-abnormal), "abnormal", state.abnormal);
-  animateNum($(#s-restarts), "restarts", rs);
+  $(#s-total).text = fmtInt(state.total);
+  $(#s-running).text = fmtInt(state.running);
+  $(#s-abnormal).text = fmtInt(state.abnormal);
+  $(#s-restarts).text = fmtInt(rs);
   if (state.abnormal > 0) $(#stat-alert).attributes.addClass("hot"); else $(#stat-alert).attributes.removeClass("hot");
-  alertLevel = state.abnormal > 0 ? 2 : (state.running > 0 ? 1 : 0);
+  var lvl = state.abnormal > 0 ? 2 : (state.running > 0 ? 1 : 0);
+  if (lvl != alertLevel) { alertLevel = lvl; $(#radar).refresh(); }   // 雷达只随状态变色
   $(#list-cnt).text = "TARGETS · " + state.total;
   $(#host-line).text = "SYSTEM MONITOR · " + (state.machine ? state.machine : state.hostname) + " · " + state.version;
   renderApps();
@@ -1310,11 +1259,7 @@ function self.ready() {
   $(#spark).paintContent = paintSpark;
   refresh();
   self.timer(1000ms, function() { refresh(); return true; });
-  $(#radar).timer(40ms, function() { radarAngle += 0.07; this.refresh(); return true; });
   $(#g-cpu).timer(40ms, function() { tickGauges(); return true; });
-  $(#live).timer(900ms, function() { $(body).attributes.toggleClass("beat"); return true; });
-  $(#hline).timer(8000ms, function() { sweepScan(); return true; });
-  sweepScan();
 }
 
 </script>

@@ -10,3 +10,6 @@ state.json
 logs/
 
 .DS_Store
+
+# 宣发视频等大文件不入库
+*.mp4
