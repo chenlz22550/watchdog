@@ -1,0 +1,12 @@
+# 编译产物
+dist/
+*.exe
+sciter.dll
+libsciter.dylib
+
+# 运行时生成
+config.json
+state.json
+logs/
+
+.DS_Store

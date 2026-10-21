@@ -1,0 +1,1322 @@
+<html window-frame="solid" window-resizable="true">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>进程守护 Watchdog</title>
+<style>
+  /* ================= 浅色科幻调色板 =================
+     底 #EDF2F9  面板 白色半透明  主文字 #12233F
+     青 #00A6E6  紫 #7C4DFF  绿 #00A86B  琥珀 #E08A00  橙 #F06A1E  红 #E8355F */
+  html {
+    background: #EDF2F9;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 12px;
+    color: #12233F;
+    border: 1px solid #9DB2CF;  /* 无边框窗口的外轮廓 */
+  }
+  html.maxed { border: none; }
+  body { margin: 0; padding: 0; height: 100%; flow: vertical; position: relative; overflow: hidden; }
+  .mono { font-family: Consolas, "Cascadia Mono", Menlo, monospace; }
+  .spacer { width: *; }
+  /* Windows 版 Sciter 会把收缩宽度容器里的中文逐字折行，短标签一律不换行 */
+  .glbl, .gsub, .glim, .legend, .head span, #brand .title, #brand .sub, .toggle, .segbtn { white-space: nowrap; }
+
+  /* 扫描光带：在内容层下方缓慢扫过 */
+  #scan {
+    position: absolute; left: 0; right: 0; top: -140px; height: 140px; z-index: 0;
+    background: linear-gradient(to bottom, rgba(0,166,230,0), rgba(0,166,230,0.07), rgba(0,166,230,0));
+  }
+  #scan.down { top: 100%; transition: top linear 7s; }
+  #header, #hline, #main { position: relative; z-index: 1; }
+
+  /* ================= 顶栏 ================= */
+  #header {
+    flow: horizontal; vertical-align: middle; border-spacing: 12px;
+    height: 54px; padding: 0 8px 0 16px; background: rgba(255,255,255,0.88);
+  }
+  #hdrag { width: *; height: *; }   /* 标题栏空白处可拖动、双击最大化 */
+
+  /* 自绘窗口按钮 */
+  #wctl { flow: horizontal; vertical-align: middle; border-spacing: 2px; padding-left: 10px; border-left: 1px solid #DCE5F0; }
+  .wbtn {
+    behavior: button; flow: vertical; width: 34px; height: 28px; border-radius: 5px; cursor: pointer;
+    background: transparent; border: none; padding: 0; color: #5A6E8C;
+    transition: background-color linear 120ms, color linear 120ms;
+  }
+  .wbtn:hover { background: #E4EEF8; color: #0B6FA4; }
+  .wbtn.close:hover { background: #E8355F; color: #FFFFFF; box-shadow: 0 0 10px rgba(232,53,95,0.45); }
+  .wbtn .ic { margin: *; }
+  .ic-min { width: 10px; height: 1px; background: currentcolor; }
+  .ic-max { width: 8px; height: 8px; border: 1px solid currentcolor; }
+  .ic-res { position: relative; width: 10px; height: 10px; }
+  .ic-res .a { position: absolute; left: 2px; top: 0; width: 6px; height: 6px; border: 1px solid currentcolor; border-left-color: transparent; border-bottom-color: transparent; }
+  .ic-res .b { position: absolute; left: 0; top: 2px; width: 6px; height: 6px; border: 1px solid currentcolor; }
+  .ic-close { font-size: 13px; line-height: 13px; width: 13px; text-align: center; }
+  #hline { height: 2px; background: linear-gradient(to right, rgba(0,166,230,0), #00A6E6, #7C4DFF, rgba(124,77,255,0)); }
+  #radar { width: 38px; height: 38px; }
+  #brand { flow: vertical; }
+  #brand .title { font-size: 16px; font-weight: bold; color: #0E1D38; letter-spacing: 1px; }
+  #brand .title b { color: #00A6E6; }
+  #brand .sub { font-size: 10px; color: #7B8DAA; margin-top: 1px; letter-spacing: 1px; }
+
+  /* ================= 按钮 ================= */
+  .btn {
+    behavior: button; display: inline-block;
+    height: 28px; line-height: 28px; padding: 0 12px;
+    border-radius: 6px; border: 1px solid rgba(0,140,210,0.32);
+    background: #FFFFFF; color: #0B6FA4; font-size: 12px; cursor: pointer; white-space: nowrap;
+    transition: background-color linear 150ms, border-color linear 150ms;
+  }
+  .btn:hover { background: #E9F7FE; border-color: #00A6E6; box-shadow: 0 0 10px rgba(0,166,230,0.32); }
+  .btn:active { background: #D5F0FC; }
+  .btn.primary { background: linear-gradient(to right, #00B2EE, #7C4DFF); border-color: #6C63F5; color: #FFFFFF; box-shadow: 0 2px 10px rgba(92,99,245,0.3); }
+  .btn.primary:hover { box-shadow: 0 0 16px rgba(0,166,230,0.55); }
+  .btn.danger { border-color: rgba(232,53,95,0.4); color: #D42A55; }
+  .btn.danger:hover { background: #FFEFF3; border-color: #E8355F; box-shadow: 0 0 10px rgba(232,53,95,0.3); }
+  .btn.solid-danger { background: #E8355F; border-color: #E8355F; color: #FFF; }
+  .btn.solid-danger:hover { background: #D42A55; box-shadow: 0 0 14px rgba(232,53,95,0.45); }
+  .btn.sm { height: 22px; line-height: 22px; padding: 0 8px; font-size: 11px; border-radius: 5px; }
+  .btn.ghost { border-color: transparent; background: transparent; color: #5A6E8C; box-shadow: none; }
+  .btn.ghost:hover { border-color: rgba(0,140,210,0.3); background: #F2FAFE; color: #0B6FA4; }
+  .btn.ghost.danger { color: #D42A55; }
+  .btn.ghost.danger:hover { border-color: rgba(232,53,95,0.4); background: #FFF2F5; }
+
+  /* ================= 主体 ================= */
+  #main { height: *; flow: horizontal; border-spacing: 12px; padding: 12px 16px 14px 16px; }
+  #left { width: *; height: *; flow: vertical; border-spacing: 10px; }
+
+  .panel {
+    background: rgba(255,255,255,0.86);
+    border: 1px solid rgba(40,120,210,0.16);
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(30,80,160,0.06);
+  }
+
+  #stats { flow: horizontal; border-spacing: 10px; }
+  .stat { width: *; height: 30px; padding: 8px 12px; flow: horizontal; vertical-align: middle; border-spacing: 10px; }
+  .stat .bar { width: 3px; height: 30px; border-radius: 2px; }
+  .stat .txt { flow: vertical; white-space: nowrap; }
+  .stat .tag { white-space: nowrap; font-size: 9px; letter-spacing: 2px; color: #93A3BC; }
+  .stat .lbl { white-space: nowrap; font-size: 11px; color: #5A6E8C; }
+  .stat .num { font-size: 24px; font-weight: bold; line-height: 26px; }
+  .stat.c-cyan  .num { color: #00A6E6; }
+  .stat.c-cyan  .bar { background: #00A6E6; box-shadow: 0 0 6px #00A6E6; }
+  .stat.c-green .num { color: #00A86B; }
+  .stat.c-green .bar { background: #00A86B; box-shadow: 0 0 6px #00A86B; }
+  .stat.c-red   .num { color: #E8355F; }
+  .stat.c-red   .bar { background: #E8355F; box-shadow: 0 0 6px #E8355F; }
+  .stat.c-amber .num { color: #E08A00; }
+  .stat.c-amber .bar { background: #E08A00; box-shadow: 0 0 6px #E08A00; }
+  .stat.c-red.hot { border-color: rgba(232,53,95,0.55); box-shadow: 0 0 14px rgba(232,53,95,0.22); background: #FFF6F8; }
+
+  #list-head { flow: horizontal; vertical-align: middle; border-spacing: 8px; }
+  .sect { font-size: 12px; font-weight: bold; color: #0E1D38; letter-spacing: 1px; }
+  .sect:before { content: "▍"; color: #00A6E6; }
+  .sect-en { font-size: 9px; letter-spacing: 2px; color: #93A3BC; }
+
+  /* 列表可用滚轮滚动，但不显示滚动条 */
+  #app-list { height: *; overflow-y: hidden-scroll; flow: vertical; border-spacing: 8px; }
+
+  /* ================= 程序卡片 ================= */
+  .card { flow: horizontal; transition: border-color linear 200ms, opacity linear 400ms; }
+  .card.enter { opacity: 0; }
+  .card:hover { border-color: rgba(0,166,230,0.5); box-shadow: 0 0 14px rgba(0,166,230,0.16); }
+  .card .strip { width: 3px; height: *; border-radius: 8px 0 0 8px; background: #C5D0E0; transition: opacity linear 900ms; }
+  .card .body { width: *; padding: 8px 12px; flow: vertical; border-spacing: 5px; }
+  .card .row1 { flow: horizontal; vertical-align: middle; border-spacing: 8px; }
+  .card .name { white-space: nowrap; font-size: 13px; font-weight: bold; color: #0E1D38; }
+  .card .path { color: #7B8DAA; font-size: 11px; overflow-x: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .row3 { flow: horizontal-wrap; vertical-align: middle; border-spacing: 6px; }
+  .card .actions { flow: horizontal; border-spacing: 4px; vertical-align: middle; }
+  .kv { font-size: 11px; color: #93A3BC; white-space: nowrap; padding-right: 6px; }
+  .kv b { color: #12233F; font-weight: normal; }
+
+  .note { font-size: 11px; padding: 4px 8px; border-radius: 5px; flow: vertical; border-spacing: 4px; }
+  .note.warn { background: #FFF7E6; color: #B26B00; border: 1px solid rgba(224,138,0,0.3); }
+  .note.err  { background: #FFF0F3; color: #C8244C; border: 1px solid rgba(232,53,95,0.3); }
+  .prog { height: 3px; background: rgba(232,53,95,0.12); border-radius: 2px; }
+  .prog .fill { height: 3px; width: 100%; border-radius: 2px; background: linear-gradient(to right, #E8355F, #E08A00); transition: width linear 1000ms; }
+
+  .pill {
+    height: 18px; line-height: 18px; padding: 0 8px 0 6px;
+    border-radius: 9px; font-size: 11px; white-space: nowrap; border: 1px solid;
+    flow: horizontal; vertical-align: middle; border-spacing: 5px;
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 3px; transition: opacity linear 900ms; }
+  .chip {
+    display: inline-block; height: 18px; line-height: 18px; padding: 0 6px;
+    border-radius: 4px; font-size: 10px; white-space: nowrap;
+    background: #F2F5FA; color: #5A6E8C; border: 1px solid #DFE6F0;
+  }
+  .chip.ok   { background: #EAF8F2; color: #00875A; border-color: rgba(0,168,107,0.3); }
+  .chip.bad  { background: #FFF0F3; color: #C8244C; border-color: rgba(232,53,95,0.35); }
+  .chip.opt  { background: #EBF7FD; color: #0B7DB5; border-color: rgba(0,166,230,0.28); }
+  .chip.mode { background: #F2EEFF; color: #5B35D5; border-color: rgba(124,77,255,0.3); }
+
+  .st-running  .strip { background: #00A86B; box-shadow: 0 0 6px #00A86B; }
+  .st-warning  .strip { background: #E08A00; box-shadow: 0 0 6px #E08A00; }
+  .st-starting .strip { background: #00A6E6; box-shadow: 0 0 6px #00A6E6; }
+  .st-backoff  .strip { background: #F06A1E; box-shadow: 0 0 6px #F06A1E; }
+  .st-failed   .strip { background: #E8355F; box-shadow: 0 0 6px #E8355F; }
+  .card.st-warning { border-color: rgba(224,138,0,0.4); }
+  .card.st-backoff { border-color: rgba(240,106,30,0.42); }
+  .card.st-failed  { border-color: rgba(232,53,95,0.5); box-shadow: 0 0 12px rgba(232,53,95,0.15); }
+
+  .pill.running  { color: #00875A; border-color: rgba(0,168,107,0.4); background: #EAF8F2; }
+  .pill.running .dot { background: #00A86B; box-shadow: 0 0 5px #00A86B; }
+  .pill.warning  { color: #B26B00; border-color: rgba(224,138,0,0.45); background: #FFF7E6; }
+  .pill.warning .dot { background: #E08A00; box-shadow: 0 0 5px #E08A00; }
+  .pill.starting { color: #0B7DB5; border-color: rgba(0,166,230,0.45); background: #EBF7FD; }
+  .pill.starting .dot { background: #00A6E6; box-shadow: 0 0 5px #00A6E6; }
+  .pill.backoff  { color: #C4500E; border-color: rgba(240,106,30,0.45); background: #FFF2EA; }
+  .pill.backoff .dot { background: #F06A1E; box-shadow: 0 0 5px #F06A1E; }
+  .pill.failed   { color: #C8244C; border-color: rgba(232,53,95,0.45); background: #FFF0F3; }
+  .pill.failed .dot { background: #E8355F; box-shadow: 0 0 5px #E8355F; }
+  .pill.stopped  { color: #5A6E8C; border-color: #D3DCE8; background: #F2F5FA; }
+  .pill.stopped .dot { background: #93A3BC; }
+
+  /* 呼吸：根元素每 0.9 秒切换一次 beat，所有指示灯一起渐变 */
+  body.beat .pill .dot { opacity: 0.25; }
+  body.beat .st-running .strip, body.beat .st-warning .strip, body.beat .st-backoff .strip, body.beat .st-failed .strip { opacity: 0.4; }
+
+  #empty { height: *; flow: vertical; text-align: center; color: #7B8DAA; border-style: dashed; }
+  #empty .t { margin-top: *; font-size: 14px; color: #12233F; font-weight: bold; letter-spacing: 2px; }
+  #empty .d { margin-top: 6px; margin-bottom: 14px; }
+  #empty .ebtns { flow: horizontal; border-spacing: 8px; margin-bottom: *; margin-left: *; margin-right: *; }
+
+  /* ================= 右侧：宿主机遥测 + 事件流 ================= */
+  #right { width: 318px; height: *; flow: vertical; border-spacing: 10px; }
+  #right .head { flow: horizontal; vertical-align: middle; border-spacing: 6px; padding: 7px 12px; border-bottom: 1px solid rgba(40,120,210,0.1); }
+  #hostp { flow: vertical; transition: border-color linear 300ms; }
+  #hostp.alert { border-color: rgba(232,53,95,0.6); box-shadow: 0 0 16px rgba(232,53,95,0.2); }
+  #host-at { font-size: 9px; color: #93A3BC; }
+  .hbody { padding: 8px 12px 10px 12px; flow: vertical; border-spacing: 7px; }
+  .gauges { flow: horizontal; border-spacing: 6px; }
+  .gauge { width: *; flow: horizontal; vertical-align: middle; border-spacing: 8px; }
+  .ring { width: 64px; height: 64px; line-height: 64px; text-align: center; font-size: 15px; font-weight: bold; color: #0E1D38; }
+  .ring.over { color: #E8355F; }
+  .ginfo { width: *; flow: vertical; border-spacing: 2px; }
+  .ginfo span { white-space: nowrap; }
+  .glbl { font-size: 11px; color: #12233F; font-weight: bold; }
+  .gsub { font-size: 10px; color: #7B8DAA; }
+  .glim { font-size: 9px; color: #93A3BC; }
+  #spark { height: 34px; }
+  .legend { flow: horizontal; border-spacing: 10px; font-size: 9px; color: #93A3BC; }
+  .legend .c1 { color: #00A6E6; }
+  .legend .c2 { color: #7C4DFF; }
+  .connhead { flow: horizontal; vertical-align: bottom; border-spacing: 6px; }
+  #c-total { font-size: 20px; font-weight: bold; color: #00A6E6; line-height: 22px; }
+  #c-total.over { color: #E8355F; }
+  .connsub { font-size: 10px; color: #7B8DAA; padding-bottom: 2px; white-space: nowrap; }
+  .connbar { height: 4px; background: #E3EAF4; border-radius: 2px; }
+  .connbar .fill { height: 4px; width: 0%; border-radius: 2px; background: linear-gradient(to right, #00B2EE, #7C4DFF); transition: width linear 800ms; }
+  .connbar .fill.over { background: linear-gradient(to right, #E08A00, #E8355F); }
+  #c-states { flow: horizontal-wrap; border-spacing: 4px; }
+  .sc { display: inline-block; height: 17px; line-height: 17px; padding: 0 5px; border-radius: 3px; font-size: 9px;
+        background: #F2F7FC; color: #5A6E8C; border: 1px solid #DCE6F2; white-space: nowrap; }
+  .sc b { color: #0E1D38; }
+  .sc.hot { border-color: rgba(224,138,0,0.45); color: #B26B00; background: #FFF7E6; }
+
+  #evp { height: *; flow: vertical; }
+  #live { width: 6px; height: 6px; border-radius: 3px; background: #00A86B; box-shadow: 0 0 5px #00A86B; transition: opacity linear 900ms; }
+  body.beat #live { opacity: 0.2; }
+  #events { height: *; overflow-y: hidden-scroll; padding: 4px 0; }
+  .ev { flow: horizontal; border-spacing: 8px; padding: 4px 12px; transition: background-color linear 1500ms; }
+  .ev.fresh { background: rgba(0,166,230,0.16); }
+  .ev:hover { background: #F2F8FD; }
+  .ev .mark { width: 2px; height: *; border-radius: 1px; background: #B8C5D8; }
+  .ev.ok .mark { background: #00A86B; }
+  .ev.warn .mark { background: #E08A00; }
+  .ev.error .mark { background: #E8355F; }
+  .ev .c { width: *; flow: vertical; }
+  .ev .top { flow: horizontal; border-spacing: 6px; }
+  .ev .app { white-space: nowrap; font-weight: bold; color: #12233F; font-size: 11px; }
+  .ev .time { white-space: nowrap; color: #93A3BC; font-size: 10px; }
+  .ev .txt { color: #5A6E8C; font-size: 11px; }
+  .ev.error .txt { color: #C8244C; }
+  .ev.warn .txt { color: #B26B00; }
+  #events .none { color: #93A3BC; text-align: center; padding-top: 30px; letter-spacing: 2px; }
+
+  /* ================= 弹窗 ================= */
+  .overlay {
+    position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10;
+    background: rgba(18,35,63,0.32);
+    flow: vertical; display: none; opacity: 0;
+    transition: opacity linear 180ms;
+  }
+  .overlay.open { display: block; }
+  .overlay.open.show { opacity: 1; }
+  .dialog {
+    margin: *; width: 640px; flow: vertical;
+    background: #FFFFFF; border: 1px solid rgba(0,166,230,0.45); border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(18,60,130,0.25), 0 0 24px rgba(0,166,230,0.18);
+  }
+  .dialog.narrow { width: 420px; }
+  .dialog .dbar { height: 3px; border-radius: 10px 10px 0 0; background: linear-gradient(to right, #00B2EE, #7C4DFF); }
+  .dialog.danger { border-color: rgba(232,53,95,0.5); box-shadow: 0 10px 40px rgba(130,18,50,0.22); }
+  .dialog.danger .dbar { background: linear-gradient(to right, #E8355F, #E08A00); }
+  .dialog .dh { flow: horizontal; vertical-align: middle; padding: 10px 18px 2px 18px; border-spacing: 8px; }
+  .dialog .dh .t { white-space: nowrap; font-size: 14px; font-weight: bold; color: #0E1D38; }
+  .dialog .db { padding: 8px 18px 4px 18px; flow: vertical; border-spacing: 8px; }
+  .dialog .df { flow: horizontal; border-spacing: 8px; padding: 8px 18px 14px 18px; vertical-align: middle; }
+  .field { flow: vertical; border-spacing: 4px; }
+  .field label { display: block; white-space: nowrap; overflow-x: hidden; text-overflow: ellipsis; font-size: 11px; color: #3D5478; font-weight: bold; }
+  .hint { font-size: 10px; color: #93A3BC; }
+  .cols { flow: horizontal; border-spacing: 12px; }
+  .cols > .field { width: *; }
+  .inline { flow: horizontal; border-spacing: 6px; }
+
+  input[type=text] {
+    width: *; height: 28px; padding: 0 8px;
+    border: 1px solid #CFDAE8; border-radius: 6px;
+    background: #F8FBFE; color: #12233F; font-size: 12px;
+    transition: border-color linear 150ms;
+  }
+  input[type=text]:hover { border-color: #9FC7E6; }
+  input[type=text]:focus { border-color: #00A6E6; background: #FFFFFF; box-shadow: 0 0 8px rgba(0,166,230,0.3); outline: 0; }
+
+  /* 重启策略：二选一分段按钮 */
+  .seg { flow: horizontal; border: 1px solid rgba(124,77,255,0.35); border-radius: 6px; padding: 2px; background: #F6F3FF; }
+  .segbtn {
+    behavior: button; width: *; height: 24px; line-height: 24px; text-align: center; cursor: pointer;
+    border-radius: 4px; color: #6B5BA8; font-size: 12px;
+    background: transparent; border: none; padding: 0;
+    transition: background-color linear 160ms, color linear 160ms;
+  }
+  .segbtn:hover { color: #4B2FC4; }
+  .segbtn.on { background: linear-gradient(to right, #00B2EE, #7C4DFF); color: #FFFFFF; box-shadow: 0 0 10px rgba(124,77,255,0.35); }
+  #mode-desc { font-size: 10px; color: #6B5BA8; }
+
+  /* 开关 */
+  .toggles { flow: horizontal-wrap; border-spacing: 8px; }
+  .toggle {
+    behavior: button; flow: horizontal; vertical-align: middle; border-spacing: 7px;
+    background-image: none; height: 26px; padding: 0 10px 0 6px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    border: 1px solid #D3DCE8; background: #F8FBFE; color: #5A6E8C;
+    transition: border-color linear 160ms, color linear 160ms;
+  }
+  .toggle .sw { width: 26px; height: 14px; border-radius: 7px; background: #C8D3E2; transition: background-color linear 160ms; }
+  .toggle .knob { width: 10px; height: 10px; border-radius: 5px; margin: 2px; background: #FFFFFF; transition: margin-left linear 150ms; }
+  .toggle.on { border-color: rgba(0,166,230,0.5); color: #0B6FA4; background: #EEF8FE; }
+  .toggle.on .sw { background: linear-gradient(to right, #00B2EE, #7C4DFF); }
+  .toggle.on .knob { margin-left: 14px; box-shadow: 0 0 6px rgba(0,166,230,0.8); }
+
+  /* 自动导入 */
+  .dialog.wide { width: 780px; }
+  .itools { flow: horizontal; vertical-align: middle; border-spacing: 6px; }
+  #imp-q { width: *; }
+  #imp-list {
+    height: 300px; overflow-y: hidden-scroll; flow: vertical; border-spacing: 4px;
+    border: 1px solid #DFE6F0; border-radius: 8px; padding: 6px; background: #F7FAFD;
+  }
+  .irow {
+    flow: horizontal; border-spacing: 10px; padding: 6px 10px; cursor: pointer;
+    background: #FFFFFF; border: 1px solid #E3EAF4; border-radius: 6px;
+    transition: border-color linear 150ms, background-color linear 150ms;
+  }
+  .irow:hover { border-color: rgba(0,166,230,0.5); }
+  .irow.on { border-color: rgba(0,166,230,0.65); background: #EEF8FE; box-shadow: 0 0 8px rgba(0,166,230,0.18); }
+  .irow.done { cursor: default; opacity: 0.55; }
+  .irow.done:hover { border-color: #E3EAF4; }
+  .ck {
+    width: 14px; height: 14px; line-height: 14px; margin-top: 2px; border-radius: 3px; text-align: center;
+    font-size: 10px; color: #FFFFFF; border: 1px solid #B8C5D8; background: #FFFFFF;
+  }
+  .irow.on .ck { border-color: #6C63F5; background: linear-gradient(to right, #00B2EE, #7C4DFF); }
+  .irow.done .ck { background: #DFE6F0; }
+  .ibody { width: *; flow: vertical; border-spacing: 3px; }
+  .ihead { flow: horizontal-wrap; vertical-align: middle; border-spacing: 6px; }
+  .iname { font-weight: bold; font-size: 12px; color: #0E1D38; white-space: nowrap; }
+  .idesc { font-size: 11px; color: #7B8DAA; white-space: nowrap; }
+  .icmd { font-size: 11px; color: #3D5478; overflow-x: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .isub { font-size: 10px; color: #93A3BC; overflow-x: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #imp-list .none { color: #93A3BC; text-align: center; padding-top: 120px; letter-spacing: 2px; }
+  .iopts { flow: horizontal; vertical-align: middle; border-spacing: 10px; }
+  .iopts .seg { width: 220px; }
+  #imp-count { font-size: 11px; color: #5A6E8C; white-space: nowrap; }
+
+  #form-err, #set-err, #imp-err { color: #D42A55; font-size: 11px; }
+  .tipbox {
+    width: *; border-radius: 6px; padding: 6px 10px; font-size: 11px; line-height: 1.5;
+    color: #3D6E99; background: #F0F8FD; border: 1px solid rgba(0,166,230,0.18);
+  }
+  .confirm-text { color: #3D5478; line-height: 1.7; white-space: pre-wrap; }
+
+  /* ================= 提示条 ================= */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; margin-left: -170px; width: 340px; z-index: 20;
+    padding: 8px 14px; border-radius: 8px; text-align: center; font-size: 12px;
+    background: #FFFFFF; color: #0B6FA4; border: 1px solid #00A6E6;
+    box-shadow: 0 6px 20px rgba(0,100,180,0.22), 0 0 14px rgba(0,166,230,0.3);
+    display: none; opacity: 0; transition: opacity linear 220ms;
+  }
+  #toast.show { display: block; }
+  #toast.show.vis { opacity: 1; }
+  #toast.err { border-color: #E8355F; color: #C8244C; box-shadow: 0 6px 20px rgba(180,0,60,0.2); }
+</style>
+</head>
+<body>
+
+<div #scan></div>
+
+<div #header>
+  <div #radar role="window-caption"></div>
+  <div #brand role="window-caption">
+    <div class="title">进程守护 <b>//</b> WATCHDOG</div>
+    <div class="sub mono" #host-line>SYSTEM MONITOR</div>
+  </div>
+  <div #hdrag role="window-caption"></div>
+  <button class="btn ghost" cmd="logs">日志</button>
+  <button class="btn" cmd="test">测试推送</button>
+  <button class="btn" cmd="settings">设置</button>
+  <button class="btn" cmd="import">⇲ 自动导入</button>
+  <button class="btn primary" cmd="add">＋ 添加程序</button>
+  <div #wctl>
+    <button class="wbtn" cmd="win-min" title="最小化"><div class="ic ic-min"></div></button>
+    <button class="wbtn" cmd="win-max" title="最大化" #win-max><div class="ic ic-max"></div></button>
+    <button class="wbtn close" cmd="hide" title="关闭到系统托盘"><div class="ic ic-close">✕</div></button>
+  </div>
+</div>
+<div #hline></div>
+
+<div #main>
+  <div #left>
+    <div #stats>
+      <div class="stat panel c-cyan"><div class="bar"></div><div class="txt"><span class="tag mono">PROCESSES</span><span class="lbl">监控程序</span></div><div class="spacer"></div><span class="num mono" #s-total>0</span></div>
+      <div class="stat panel c-green"><div class="bar"></div><div class="txt"><span class="tag mono">ONLINE</span><span class="lbl">运行中</span></div><div class="spacer"></div><span class="num mono" #s-running>0</span></div>
+      <div class="stat panel c-red" #stat-alert><div class="bar"></div><div class="txt"><span class="tag mono">ALERTS</span><span class="lbl">异常</span></div><div class="spacer"></div><span class="num mono" #s-abnormal>0</span></div>
+      <div class="stat panel c-amber"><div class="bar"></div><div class="txt"><span class="tag mono">RESTARTS</span><span class="lbl">累计重启</span></div><div class="spacer"></div><span class="num mono" #s-restarts>0</span></div>
+    </div>
+    <div #list-head>
+      <span class="sect">监控列表</span>
+      <span class="sect-en mono" #list-cnt>TARGETS</span>
+      <div class="spacer"></div>
+      <button class="btn sm" cmd="startall">全部启动</button>
+    </div>
+    <div #app-list></div>
+  </div>
+
+  <div #right>
+    <div #hostp class="panel">
+      <div class="head">
+        <span class="sect">宿主机</span>
+        <span class="sect-en mono">HOST TELEMETRY</span>
+        <div class="spacer"></div>
+        <span #host-at class="mono"></span>
+      </div>
+      <div class="hbody">
+        <div class="gauges">
+          <div class="gauge"><div class="ring mono" #g-cpu>--</div><div class="ginfo"><span class="glbl">CPU</span><span class="gsub" #g-cpu-l></span><span class="glim mono" #g-cpu-t></span></div></div>
+          <div class="gauge"><div class="ring mono" #g-mem>--</div><div class="ginfo"><span class="glbl">内存</span><span class="gsub" #g-mem-l></span><span class="glim mono" #g-mem-t></span></div></div>
+        </div>
+        <div #spark></div>
+        <div class="legend mono"><span class="c1">━ CPU</span><span class="c2">━ MEM</span><div class="spacer"></div><span>LAST 6 MIN</span></div>
+        <div class="connhead">
+          <span #c-total class="mono">0</span>
+          <span class="connsub">TCP 连接</span>
+          <div class="spacer"></div>
+          <span class="connsub mono" #c-sub></span>
+        </div>
+        <div class="connbar"><div class="fill" #c-fill></div></div>
+        <div #c-states></div>
+      </div>
+    </div>
+    <div #evp class="panel">
+      <div class="head">
+        <div #live></div>
+        <span class="sect">事件流</span>
+        <span class="sect-en mono">EVENT STREAM</span>
+        <div class="spacer"></div>
+        <button class="btn ghost sm" cmd="logs">日志文件</button>
+      </div>
+      <div #events><div class="none mono">NO EVENTS</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 添加 / 编辑程序 -->
+<div class="overlay" #dlg-app>
+  <div class="dialog">
+    <div class="dbar"></div>
+    <div class="dh"><span class="t" #app-title>添加程序</span><span class="sect-en mono">TARGET CONFIG</span><div class="spacer"></div><button class="btn ghost sm" cmd="close">✕</button></div>
+    <div class="db">
+      <div class="cols">
+        <div class="field"><label>显示名称</label><input type="text" #f-name placeholder="留空则使用程序文件名" /></div>
+        <div class="field">
+          <label>重启策略</label>
+          <div class="seg">
+            <button class="segbtn" cmd="mode" data-id="backoff" #m-backoff>退避重启</button>
+            <button class="segbtn" cmd="mode" data-id="immediate" #m-immediate>立即重启</button>
+          </div>
+        </div>
+      </div>
+      <div #mode-desc></div>
+      <div class="field">
+        <label>程序路径</label>
+        <div class="inline"><input type="text" #f-path placeholder="C:\\Apps\\server.exe（支持 .exe / .bat / .cmd）" /><button class="btn" cmd="browse-exe">浏览…</button></div>
+      </div>
+      <div class="cols">
+        <div class="field"><label>启动参数</label><input type="text" #f-args placeholder="原样传递，如 --port 8080" /></div>
+        <div class="field">
+          <label>工作目录</label>
+          <div class="inline"><input type="text" #f-dir placeholder="默认为程序所在目录" /><button class="btn" cmd="browse-dir">…</button></div>
+        </div>
+      </div>
+      <div class="cols">
+        <div class="field">
+          <label>监控端口（本程序监听）</label>
+          <input type="text" #f-ports placeholder="8080, 127.0.0.1:9000" />
+        </div>
+        <div class="field">
+          <label>依赖端口（目标地址）</label>
+          <input type="text" #f-deps placeholder="10.0.0.5:1433, db.local:3306" />
+        </div>
+      </div>
+      <div class="hint">监控端口连续 N 次不通会判定异常并重启程序；依赖端口（如数据库）连续 N 次不通只推送告警、不重启，恢复后再推送恢复通知。纯数字表示 127.0.0.1。</div>
+      <div class="cols">
+        <div class="field"><label>启动宽限期（秒）</label><input type="text" #f-grace /></div>
+        <div class="field"><label>检测间隔（秒）</label><input type="text" #f-interval /></div>
+        <div class="field"><label>失败阈值 N（次）</label><input type="text" #f-threshold /></div>
+      </div>
+      <div class="toggles">
+        <button class="toggle" cmd="toggle" #f-hang><div class="sw"><div class="knob"></div></div>检测窗口假死</button>
+        <button class="toggle" cmd="toggle" #f-capture><div class="sw"><div class="knob"></div></div>隐藏窗口并捕获输出</button>
+        <button class="toggle" cmd="toggle" #f-auto><div class="sw"><div class="knob"></div></div>随监控器自动启动</button>
+      </div>
+      <div #form-err></div>
+    </div>
+    <div class="df">
+      <span class="hint">假死检测仅对有窗口的程序生效；捕获输出后通知会附带最后的输出</span>
+      <div class="spacer"></div>
+      <button class="btn" cmd="close">取消</button>
+      <button class="btn" cmd="save-app">保存</button>
+      <button class="btn primary" cmd="save-start" #btn-save-start>保存并启动</button>
+    </div>
+  </div>
+</div>
+
+<!-- 自动导入 -->
+<div class="overlay" #dlg-imp>
+  <div class="dialog wide">
+    <div class="dbar"></div>
+    <div class="dh"><span class="t">自动导入</span><span class="sect-en mono">AUTO DISCOVER</span><div class="spacer"></div><button class="btn ghost sm" cmd="close">✕</button></div>
+    <div class="db">
+      <div class="itools">
+        <input type="text" #imp-q placeholder="按名称、说明或命令行筛选" />
+        <button class="btn sm" cmd="imp-all">全选</button>
+        <button class="btn sm" cmd="imp-none">清空</button>
+        <button class="btn sm" cmd="imp-scan">重新扫描</button>
+      </div>
+      <div class="hint" #imp-info>正在扫描…</div>
+      <div #imp-list></div>
+      <div class="iopts">
+        <div class="seg">
+          <button class="segbtn" cmd="imode" data-id="backoff" #i-backoff>退避重启</button>
+          <button class="segbtn" cmd="imode" data-id="immediate" #i-immediate>立即重启</button>
+        </div>
+        <button class="toggle" cmd="toggle" #i-ports><div class="sw"><div class="knob"></div></div>把监听端口设为监控端口</button>
+      </div>
+      <div #imp-err></div>
+    </div>
+    <div class="df">
+      <span class="hint">导入后直接接管运行中的进程，不会重启；其他选项导入后可在“编辑”中修改</span>
+      <div class="spacer"></div>
+      <span #imp-count></span>
+      <button class="btn" cmd="close">取消</button>
+      <button class="btn primary" cmd="imp-go" #imp-go>导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div class="overlay" #dlg-set>
+  <div class="dialog">
+    <div class="dbar"></div>
+    <div class="dh"><span class="t">设置</span><span class="sect-en mono">SETTINGS</span><div class="spacer"></div><button class="btn ghost sm" cmd="close">✕</button></div>
+    <div class="db">
+      <div class="field">
+        <label>企业微信机器人 Webhook</label>
+        <input type="text" #s-webhook placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." />
+      </div>
+      <div class="field">
+        <label>机器标识</label>
+        <input type="text" #s-machine />
+        <div class="hint">显示在通知中，便于区分多台机器；留空使用计算机名</div>
+      </div>
+      <div class="cols">
+        <div class="field"><label>CPU 阈值（%）</label><input type="text" #s-cpu /></div>
+        <div class="field"><label>内存阈值（%）</label><input type="text" #s-mem /></div>
+        <div class="field"><label>持续时间（秒）</label><input type="text" #s-sustain /></div>
+        <div class="field"><label>连接数阈值</label><input type="text" #s-conn /></div>
+      </div>
+      <div class="hint">CPU / 内存持续超过阈值达到设定时长才告警；TCP 连接总数（含所有状态）超过阈值立即告警；回落后推送恢复通知，持续超限每 30 分钟提醒一次。所有告警同时写入 logs\alerts-日期.log。</div>
+      <div class="toggles">
+        <button class="toggle" cmd="toggle" #s-autorun><div class="sw"><div class="knob"></div></div>开机自动启动（启动后最小化到系统托盘）</button>
+      </div>
+      <div class="tipbox">关闭主窗口会最小化到系统托盘，监控继续运行。退出监控器不会结束被监控的程序，下次启动时会自动接管。</div>
+      <div #set-err></div>
+    </div>
+    <div class="df">
+      <button class="btn danger" cmd="quit">退出监控器</button>
+      <div class="spacer"></div>
+      <button class="btn" cmd="test">测试推送</button>
+      <button class="btn primary" cmd="save-set">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 确认 -->
+<div class="overlay" #dlg-confirm>
+  <div class="dialog narrow danger">
+    <div class="dbar"></div>
+    <div class="dh"><span class="t" #cf-title>确认</span></div>
+    <div class="db"><div class="confirm-text" #cf-text></div></div>
+    <div class="df">
+      <div class="spacer"></div>
+      <button class="btn" cmd="close">取消</button>
+      <button class="btn solid-danger" cmd="confirm-ok" #cf-ok>确定</button>
+    </div>
+  </div>
+</div>
+
+<div #toast></div>
+<div #toast-gc></div>
+
+<script type="text/tiscript">
+
+// 注意：TIScript 中整数相除结果仍为整数，color() 的透明度必须传浮点数，下面统一使用 .0 字面量
+
+var state = null;
+var editingId = "";
+var editMode = "backoff";
+var lastListHtml = "";
+var lastStatesHtml = "";
+var lastEventSeq = -2;
+var seenEventSeq = -1;
+var confirmAction = null;
+var firstRender = true;
+var alertLevel = 0;        // 0 空闲 1 正常 2 异常，用于雷达配色
+var shownNums = {};
+var impList = [];          // 自动导入扫描结果
+var impPicked = {};        // key -> true
+var impMode = "backoff";
+
+var STATUS_TEXT = {
+  running: "运行中", warning: "检测异常", starting: "启动中",
+  backoff: "等待重启", failed: "已放弃", stopped: "已停止"
+};
+
+var MODE_DESC = {
+  backoff:   "退避重启：异常后依次等待 1 秒、10 秒、100 秒重启，最多 3 次，仍失败则停止并告警；稳定运行 10 分钟后计数清零。",
+  immediate: "立即重启：程序退出、假死或端口无响应后立刻重启，不限次数；程序文件无法启动时每 5 秒重试一次。"
+};
+
+function esc(s) {
+  if (s === undefined || s === null) return "";
+  s = s.toString();
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function str(v) {
+  if (v === undefined || v === null) return "";
+  return v.toString();
+}
+
+function fmtInt(n) {
+  var s = n.toInteger().toString();
+  var out = "";
+  while (s.length > 3) { out = "," + s.substr(s.length - 3) + out; s = s.substr(0, s.length - 3); }
+  return s + out;
+}
+
+/* ---------- 提示条 / 弹窗（带淡入淡出） ---------- */
+
+var toastSeq = 0;
+
+function toast(msg, isErr = false) {
+  var t = $(#toast);
+  t.text = msg;
+  if (isErr) t.attributes.addClass("err"); else t.attributes.removeClass("err");
+  t.attributes.addClass("show");
+  t.timer(20ms, function() { t.attributes.addClass("vis"); return false; });
+  var my = ++toastSeq;
+  t.timer(2600ms, function() {
+    if (my != toastSeq) return false;
+    t.attributes.removeClass("vis");
+    $(#toast-gc).timer(260ms, function() { if (my == toastSeq) t.attributes.removeClass("show"); return false; });
+    return false;
+  });
+}
+
+function openDlg(el) {
+  el.attributes.addClass("open");
+  el.timer(16ms, function() { el.attributes.addClass("show"); return false; });
+}
+
+function closeDlgs() {
+  var list = [$(#dlg-app), $(#dlg-set), $(#dlg-imp), $(#dlg-confirm)];
+  for (var i = 0; i < list.length; ++i) {
+    list[i].attributes.removeClass("show");
+    list[i].attributes.removeClass("open");
+  }
+}
+
+function setToggle(el, on) {
+  if (on) el.attributes.addClass("on"); else el.attributes.removeClass("on");
+}
+function isOn(el) { return el.attributes.hasClass("on") ? true : false; }
+
+function setMode(m) {
+  editMode = (m == "immediate") ? "immediate" : "backoff";
+  setToggle($(#m-backoff), editMode == "backoff");
+  setToggle($(#m-immediate), editMode == "immediate");
+  $(#mode-desc).text = MODE_DESC[editMode];
+}
+
+function findApp(id) {
+  if (!state || !state.apps) return null;
+  for (var i = 0; i < state.apps.length; ++i)
+    if (state.apps[i].id == id) return state.apps[i];
+  return null;
+}
+
+/* ---------- 数字滚动 ---------- */
+
+function animateNum(el, key, target) {
+  var from = shownNums[key];
+  if (from === undefined) from = 0;
+  if (from == target) { el.text = fmtInt(target); return; }
+  shownNums[key] = target;
+  var step = 0;
+  el.timer(30ms, function() {
+    step++;
+    var v = from + (target - from) * step / 12.0;
+    el.text = fmtInt(step >= 12 ? target : v);
+    return step < 12;
+  });
+}
+
+/* ---------- 渲染 ---------- */
+
+function kv(k, id, v) {
+  return "<span class='kv'>" + k + " <b class='mono' id='" + id + "'>" + esc(v) + "</b></span>";
+}
+
+function cardHtml(a) {
+  var st = str(a.status);
+  var immediate = a.restartMode == "immediate";
+  var h = "<div class='card panel st-" + st + (firstRender ? " enter" : "") + "'><div class='strip'></div><div class='body'>";
+
+  h += "<div class='row1'><span class='name'>" + esc(a.name) + "</span>";
+  h += "<span class='pill " + st + "'><span class='dot'></span>" + (STATUS_TEXT[st] || st) + "</span>";
+  h += "<span class='chip mode'>" + (immediate ? "⚡ 立即重启" : "↻ 退避重启") + "</span>";
+  h += "<div class='spacer'></div><div class='actions'>";
+  if (a.active) {
+    h += "<button class='btn sm' cmd='restart' data-id='" + a.id + "'>重启</button>";
+    h += "<button class='btn sm' cmd='stop' data-id='" + a.id + "'>停止</button>";
+  } else {
+    h += "<button class='btn sm primary' cmd='start' data-id='" + a.id + "'>启动</button>";
+  }
+  h += "<button class='btn sm' cmd='edit' data-id='" + a.id + "'>编辑</button>";
+  h += "<button class='btn sm ghost' cmd='folder' data-id='" + a.id + "'>目录</button>";
+  h += "<button class='btn sm ghost danger' cmd='remove' data-id='" + a.id + "'>删除</button>";
+  h += "</div></div>";
+
+  var line = a.path;
+  if (a.args) line += "  " + a.args;
+  h += "<div class='path mono' title='" + esc("工作目录：" + a.effDir) + "'>&gt; " + esc(line) + "</div>";
+
+  h += "<div class='row3'>";
+  h += kv("PID", "pid-" + a.id, a.pid ? a.pid : "—");
+  h += kv("运行", "up-" + a.id, "");
+  h += kv("内存", "mem-" + a.id, "");
+  h += kv("重启", "rs-" + a.id, a.restarts);
+  h += kv("本轮", "at-" + a.id, immediate ? "∞" : a.attempt + "/3");
+
+  if (a.portState && a.portState.length) {
+    for (var i = 0; i < a.portState.length; ++i) {
+      var p = a.portState[i];
+      h += "<span class='chip mono " + (p.ok ? "ok" : "bad") + "' title='" + esc(p.err) + "'>" + (p.ok ? "◉ " : "✕ ") + esc(p.addr) + "</span>";
+    }
+  } else if (a.ports) {
+    h += "<span class='chip mono'>◎ " + esc(a.ports) + "</span>";
+  }
+  if (a.depState && a.depState.length) {
+    for (var d = 0; d < a.depState.length; ++d) {
+      var q = a.depState[d];
+      h += "<span class='chip mono " + (q.ok ? "ok" : "bad") + "' title='" + esc(q.ok ? "依赖端口连通" : q.err) + "'>⇢ " + esc(q.addr) + (q.ok ? "" : " ✕") + "</span>";
+    }
+  } else if (a.deps) {
+    h += "<span class='chip mono'>⇢ " + esc(a.deps) + "</span>";
+  }
+  if (a.checkHang) h += "<span class='chip " + (a.hung ? "bad" : "opt") + "'>" + (a.hung ? "窗口未响应" : "假死检测") + "</span>";
+  if (a.capture) h += "<span class='chip opt'>捕获输出</span>";
+  if (a.autoStart) h += "<span class='chip opt'>自启</span>";
+  h += "<span class='chip mono'>" + a.interval + "s·" + a.threshold + "x·" + a.grace + "s</span>";
+  h += "</div>";
+
+  if (a.depDown) h += "<div class='note warn'><div>⚠ 依赖端口不通，已推送告警（程序未重启）</div></div>";
+  if (a.note && st != "running" && st != "stopped") {
+    var cls = (st == "failed" || st == "backoff") ? "note err" : "note warn";
+    h += "<div class='" + cls + "'><div>" + esc(a.note) + "<span class='mono' id='cd-" + a.id + "'></span></div>";
+    if (st == "backoff" && a.nextTotal > 0) h += "<div class='prog'><div class='fill' id='pg-" + a.id + "'></div></div>";
+    h += "</div>";
+  }
+  h += "</div></div>";
+  return h;
+}
+
+function renderApps() {
+  var apps = state.apps;
+  var html = "";
+  if (!apps || apps.length == 0) {
+    html = "<div #empty class='panel'><div class='t'>NO TARGETS · 暂无监控程序</div>" +
+           "<div class='d'>添加一个 Windows 程序，进程守护会在它退出、假死或端口无响应时自动重启并推送企业微信</div>" +
+           "<div class='ebtns'><button class='btn primary' cmd='add'>＋ 添加第一个程序</button><button class='btn' cmd='import'>⇲ 从运行中的程序导入</button></div></div>";
+  } else {
+    for (var i = 0; i < apps.length; ++i) html += cardHtml(apps[i]);
+  }
+  // 结构没变化时只更新动态文本，避免整表重绘打断鼠标点击
+  if (html != lastListHtml) {
+    $(#app-list).html = html;
+    lastListHtml = html;
+    if (firstRender && apps && apps.length) {
+      firstRender = false;
+      lastListHtml = "";   // 下次渲染去掉 enter 类
+      var cards = self.selectAll(".card.enter");
+      for (var k = 0; k < cards.length; ++k)
+        cards[k].timer((80 + k * 90) * 1ms, function() { this.attributes.removeClass("enter"); return false; });
+    }
+  }
+  if (!apps) return;
+  for (var j = 0; j < apps.length; ++j) {
+    var a = apps[j];
+    var e = self.select("#up-" + a.id);
+    if (e) e.text = a.uptime ? a.uptime : "—";
+    e = self.select("#mem-" + a.id);
+    if (e) e.text = a.mem ? a.mem : "—";
+    e = self.select("#cd-" + a.id);
+    if (e) e.text = (a.status == "backoff" && a.nextIn > 0) ? "  T-" + a.nextIn + "s" : "";
+    e = self.select("#pg-" + a.id);
+    if (e && a.nextTotal > 0) e.style["width"] = ((a.nextIn * 100.0 / a.nextTotal).toInteger()) + "%";
+  }
+}
+
+function renderEvents() {
+  if (state.eventSeq == lastEventSeq || !state.events) return;
+  lastEventSeq = state.eventSeq;
+  var evs = state.events;
+  var h = "";
+  for (var i = 0; i < evs.length; ++i) {
+    var e = evs[i];
+    var fresh = (seenEventSeq >= 0 && e.seq > seenEventSeq) ? " fresh" : "";
+    h += "<div class='ev " + e.level + fresh + "'><div class='mark'></div><div class='c'>" +
+         "<div class='top'><span class='app'>" + esc(e.app) + "</span><span class='time mono'>" + esc(e.time) + "</span></div>" +
+         "<div class='txt'>" + esc(e.text) + "</div></div></div>";
+  }
+  seenEventSeq = state.eventSeq;
+  $(#events).html = h ? h : "<div class='none mono'>NO EVENTS</div>";
+  // 新事件高亮后渐隐
+  $(#events).timer(60ms, function() {
+    var list = self.selectAll(".ev.fresh");
+    for (var k = 0; k < list.length; ++k) list[k].attributes.removeClass("fresh");
+    return false;
+  });
+}
+
+/* ---------- 宿主机遥测 ---------- */
+
+var gaugeShown = { cpu: 0.0, mem: 0.0 };
+var gaugeTarget = { cpu: 0.0, mem: 0.0 };
+var gaugeOver = { cpu: false, mem: false };
+
+function renderHost() {
+  var h = state.host;
+  if (!h) return;
+  gaugeTarget.cpu = h.cpu * 1.0; gaugeTarget.mem = h.mem * 1.0;
+  gaugeOver.cpu = h.cpuOver; gaugeOver.mem = h.memOver;
+  $(#g-cpu-l).text = h.cores + " 核";
+  $(#g-mem-l).text = h.memUsed + " / " + h.memTotal + " GB";
+  $(#g-cpu-t).text = "LIMIT " + h.cpuLimit + "%";
+  $(#g-mem-t).text = "LIMIT " + h.memLimit + "%";
+  if (h.cpuOver) $(#g-cpu).attributes.addClass("over"); else $(#g-cpu).attributes.removeClass("over");
+  if (h.memOver) $(#g-mem).attributes.addClass("over"); else $(#g-mem).attributes.removeClass("over");
+  $(#host-at).text = h.at ? "UPD " + h.at : "SAMPLING…";
+
+  animateNum($(#c-total), "conns", h.conns);
+  if (h.connOver) $(#c-total).attributes.addClass("over"); else $(#c-total).attributes.removeClass("over");
+  $(#c-sub).text = "/" + fmtInt(h.connLimit) + " · UDP " + fmtInt(h.udp) + " · 峰 " + fmtInt(h.connPeak);
+  var pct = h.connLimit > 0 ? h.conns * 100.0 / h.connLimit : 0.0;
+  if (pct > 100) pct = 100;
+  $(#c-fill).style["width"] = pct.toInteger() + "%";
+  if (h.connOver) $(#c-fill).attributes.addClass("over"); else $(#c-fill).attributes.removeClass("over");
+
+  var sh = "";
+  if (h.err) sh = "<span class='sc hot'>" + esc(h.err) + "</span>";
+  else if (h.states) {
+    for (var i = 0; i < h.states.length; ++i) {
+      var x = h.states[i];
+      var hot = (x.state == "CLOSE_WAIT" || x.state == "SYN_RCVD") && x.count > 100;
+      sh += "<span class='sc mono" + (hot ? " hot" : "") + "'>" + x.state + " <b>" + fmtInt(x.count) + "</b></span>";
+    }
+  }
+  if (sh != lastStatesHtml) { $(#c-states).html = sh; lastStatesHtml = sh; }
+
+  if (h.cpuOver || h.memOver || h.connOver) $(#hostp).attributes.addClass("alert"); else $(#hostp).attributes.removeClass("alert");
+  $(#spark).refresh();
+}
+
+// 环形仪表：分段刻度，数值平滑逼近目标值，颜色青 → 紫渐变，超限时变红
+function paintRing(el, gfx, key) {
+  var (w, h) = el.box(#dimension);
+  var cx = w / 2.0, cy = h / 2.0, r = w / 2.0 - 5.0;
+  var v = gaugeShown[key];
+  var over = gaugeOver[key];
+  var segs = 60;
+  gfx.lineWidth(4.0);
+  for (var i = 0; i < segs; ++i) {
+    var a0 = -Math.PI / 2.0 + i * 2.0 * Math.PI / segs;
+    var a1 = a0 + 2.0 * Math.PI / segs * 0.7;
+    if (i < v * segs / 100.0) {
+      var t = i * 1.0 / segs;
+      if (over) gfx.lineColor(color(232, 53, 95, 1.0));
+      else gfx.lineColor(color((0 + t * 124).toInteger(), (166 - t * 89).toInteger(), (230 + t * 25).toInteger(), 1.0));
+    } else {
+      gfx.lineColor(color(40, 120, 210, 0.12));
+    }
+    gfx.line(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r, cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+  }
+  return false;
+}
+
+function tickGauges() {
+  var keys = ["cpu", "mem"];
+  for (var i = 0; i < keys.length; ++i) {
+    var k = keys[i];
+    var d = gaugeTarget[k] - gaugeShown[k];
+    if (Math.abs(d) < 0.15) gaugeShown[k] = gaugeTarget[k]; else gaugeShown[k] += d * 0.12;
+  }
+  $(#g-cpu).text = gaugeShown.cpu.toInteger() + "%";
+  $(#g-mem).text = gaugeShown.mem.toInteger() + "%";
+  $(#g-cpu).refresh();
+  $(#g-mem).refresh();
+}
+
+function paintSeries(gfx, w, h, arr, r, g, b, lim) {
+  if (!arr || arr.length < 2) return;
+  var step = w / 71.0;
+  var x0 = w - (arr.length - 1) * step;
+  // 阈值虚线
+  gfx.lineWidth(1.0);
+  gfx.lineColor(color(r, g, b, 0.35));
+  var ly = h - lim * h / 100.0;
+  for (var dx = 0; dx < w; dx += 8) gfx.line(dx, ly, dx + 4, ly);
+  for (var i = 1; i < arr.length; ++i) {
+    var xa = x0 + (i - 1) * step, xb = x0 + i * step;
+    var ya = h - arr[i - 1] * (h - 2.0) / 100.0 - 1.0, yb = h - arr[i] * (h - 2.0) / 100.0 - 1.0;
+    gfx.lineWidth(3.0);
+    gfx.lineColor(color(r, g, b, 0.15));
+    gfx.line(xa, ya, xb, yb);
+    gfx.lineWidth(1.4);
+    gfx.lineColor(color(r, g, b, 1.0));
+    gfx.line(xa, ya, xb, yb);
+  }
+}
+
+function paintSpark(gfx) {
+  var (w, h) = this.box(#dimension);
+  if (!state || !state.host) return false;
+  var H = state.host;
+  gfx.lineWidth(1.0);
+  gfx.lineColor(color(40, 120, 210, 0.08));
+  for (var gy = 0; gy <= 4; ++gy) gfx.line(0, gy * (h - 1.0) / 4.0, w, gy * (h - 1.0) / 4.0);
+  paintSeries(gfx, w, h, H.memHist, 124, 77, 255, H.memLimit);
+  paintSeries(gfx, w, h, H.cpuHist, 0, 166, 230, H.cpuLimit);
+  return false;
+}
+
+/* ---------- 动态绘制：雷达 / 网格 ---------- */
+
+function themeColor(a) {
+  if (alertLevel == 2) return color(232, 53, 95, a);
+  if (alertLevel == 0) return color(123, 141, 170, a);
+  return color(0, 166, 230, a);
+}
+
+var radarAngle = 0.0;
+
+function paintRadar(gfx) {
+  var (w, h) = this.box(#dimension);
+  var cx = w / 2.0, cy = h / 2.0, r = w / 2.0 - 2.0;
+  gfx.lineWidth(1.0);
+  gfx.fillColor(color(0, 166, 230, 0.06));
+  gfx.lineColor(themeColor(0.6));
+  gfx.ellipse(cx, cy, r, r);
+  gfx.fillColor(color(0, 0, 0, 0.0));
+  gfx.lineColor(themeColor(0.25));
+  gfx.ellipse(cx, cy, r * 0.62, r * 0.62);
+  gfx.ellipse(cx, cy, r * 0.28, r * 0.28);
+  gfx.line(cx - r, cy, cx + r, cy);
+  gfx.line(cx, cy - r, cx, cy + r);
+  // 扫描扇面：一组渐隐的半径线
+  for (var i = 0; i < 18; ++i) {
+    var ang = radarAngle - i * 0.06;
+    gfx.lineWidth(i == 0 ? 2.0 : 1.5);
+    gfx.lineColor(themeColor(i == 0 ? 1.0 : 0.45 * (1.0 - i / 18.0)));
+    gfx.line(cx, cy, cx + Math.cos(ang) * r, cy + Math.sin(ang) * r);
+  }
+  gfx.lineWidth(0.0);
+  gfx.fillColor(themeColor(1.0));
+  gfx.ellipse(cx, cy, 2.0, 2.0);
+  gfx.fillColor(alertLevel == 2 ? color(232, 53, 95, 0.9) : color(0, 168, 107, 0.9));
+  gfx.ellipse(cx + r * 0.45, cy - r * 0.3, 2.0, 2.0);
+  return false;
+}
+
+// 浅色网格底纹：在背景色上画细线和交点
+function paintGrid(gfx) {
+  var (w, h) = this.box(#dimension);
+  gfx.lineWidth(0.0);
+  gfx.fillColor(color(237, 242, 249, 1.0));
+  gfx.rectangle(0, 0, w, h);
+  gfx.lineWidth(1.0);
+  gfx.lineColor(color(40, 120, 210, 0.07));
+  for (var x = 0; x < w; x += 28) gfx.line(x, 0, x, h);
+  for (var y = 0; y < h; y += 28) gfx.line(0, y, w, y);
+  gfx.lineWidth(0.0);
+  gfx.fillColor(color(0, 166, 230, 0.22));
+  for (var x2 = 0; x2 < w; x2 += 112)
+    for (var y2 = 0; y2 < h; y2 += 112)
+      gfx.rectangle(x2 - 1, y2 - 1, 3, 3);
+  return true;
+}
+
+function sweepScan() {
+  var s = $(#scan);
+  s.attributes.removeClass("down");
+  s.timer(60ms, function() { s.attributes.addClass("down"); return false; });
+}
+
+/* ---------- 主刷新 ---------- */
+
+function refresh() {
+  state = view.getState(lastEventSeq);
+  if (!state) return;
+  var rs = 0;
+  if (state.apps) for (var i = 0; i < state.apps.length; ++i) rs += state.apps[i].restarts;
+  animateNum($(#s-total), "total", state.total);
+  animateNum($(#s-running), "running", state.running);
+  animateNum($(#s-abnormal), "abnormal", state.abnormal);
+  animateNum($(#s-restarts), "restarts", rs);
+  if (state.abnormal > 0) $(#stat-alert).attributes.addClass("hot"); else $(#stat-alert).attributes.removeClass("hot");
+  alertLevel = state.abnormal > 0 ? 2 : (state.running > 0 ? 1 : 0);
+  $(#list-cnt).text = "TARGETS · " + state.total;
+  $(#host-line).text = "SYSTEM MONITOR · " + (state.machine ? state.machine : state.hostname) + " · " + state.version;
+  renderApps();
+  renderEvents();
+  renderHost();
+  setMaxed(view.isMaximized());
+}
+
+/* ---------- 程序编辑 ---------- */
+
+function openEditor(id) {
+  var a = id ? findApp(id) : null;
+  editingId = a ? a.id : "";
+  $(#app-title).text = a ? "编辑程序" : "添加程序";
+  $(#f-name).value = a ? str(a.name) : "";
+  $(#f-path).value = a ? str(a.path) : "";
+  $(#f-args).value = a ? str(a.args) : "";
+  $(#f-dir).value = a ? str(a.workDir) : "";
+  $(#f-ports).value = a ? str(a.ports) : "";
+  $(#f-deps).value = a ? str(a.deps) : "";
+  $(#f-grace).value = a ? str(a.grace) : "30";
+  $(#f-interval).value = a ? str(a.interval) : "10";
+  $(#f-threshold).value = a ? str(a.threshold) : "3";
+  setMode(a ? str(a.restartMode) : "backoff");
+  setToggle($(#f-hang), a ? a.checkHang : true);
+  setToggle($(#f-capture), a ? a.capture : false);
+  setToggle($(#f-auto), a ? a.autoStart : true);
+  $(#btn-save-start).text = (a && a.active) ? "保存并重启" : "保存并启动";
+  $(#form-err).text = "";
+  openDlg($(#dlg-app));
+}
+
+function saveApp(thenStart) {
+  var r = view.saveApp(editingId,
+    str($(#f-name).value), str($(#f-path).value), str($(#f-args).value),
+    str($(#f-dir).value), str($(#f-ports).value),
+    isOn($(#f-hang)), isOn($(#f-capture)), isOn($(#f-auto)),
+    str($(#f-grace).value), str($(#f-interval).value), str($(#f-threshold).value),
+    editMode, str($(#f-deps).value));
+  if (!r.ok) { $(#form-err).text = "✕ " + r.msg; return; }
+  var wasActive = false;
+  var old = findApp(r.id);
+  if (old) wasActive = old.active;
+  closeDlgs();
+  if (thenStart) {
+    if (wasActive) view.restartApp(r.id); else view.startApp(r.id);
+    toast(r.msg + "，正在" + (wasActive ? "重启" : "启动"));
+  } else {
+    toast(r.msg);
+  }
+}
+
+function browseExe() {
+  var fn = view.selectFile(#open, "程序文件 (*.exe;*.bat;*.cmd)|*.exe;*.bat;*.cmd|所有文件 (*.*)|*.*", "exe");
+  if (!fn) return;
+  var p = view.toPath(fn);
+  $(#f-path).value = p;
+  if (!str($(#f-name).value)) $(#f-name).value = view.baseName(p);
+}
+
+function browseDir() {
+  var fn = view.selectFolder("选择工作目录");
+  if (!fn) return;
+  $(#f-dir).value = view.toPath(fn);
+}
+
+/* ---------- 自绘标题栏 ---------- */
+
+var maxed = null;
+function setMaxed(on) {
+  on = on ? true : false;
+  if (on === maxed) return;
+  maxed = on;
+  if (on) self.attributes.addClass("maxed"); else self.attributes.removeClass("maxed");
+  var b = $(#win-max);
+  b.html = on ? "<div class='ic ic-res'><div class='a'></div><div class='b'></div></div>" : "<div class='ic ic-max'></div>";
+  b.attributes["title"] = on ? "还原" : "最大化";
+}
+
+/* ---------- 自动导入 ---------- */
+
+function openImport() {
+  impList = [];
+  impPicked = {};
+  $(#imp-q).value = "";
+  $(#imp-err).text = "";
+  setImpMode("backoff");
+  setToggle($(#i-ports), false);
+  $(#imp-list).html = "<div class='none'>SCANNING · 正在扫描运行中的程序…</div>";
+  $(#imp-info).text = "正在扫描…";
+  renderImpCount();
+  openDlg($(#dlg-imp));
+  $(#imp-list).timer(60ms, function() { scanImport(); return false; });
+}
+
+function scanImport() {
+  var r = view.scanApps();
+  if (!r.ok) {
+    $(#imp-list).html = "<div class='none'>扫描失败</div>";
+    $(#imp-err).text = "✕ " + r.msg;
+    return;
+  }
+  impList = r.list;
+  var keep = {};
+  for (var i = 0; i < impList.length; ++i)
+    if (impPicked[impList[i].key] && !impList[i].monitored) keep[impList[i].key] = true;
+  impPicked = keep;
+  var done = 0;
+  for (var j = 0; j < impList.length; ++j) if (impList[j].monitored) done++;
+  var info = "当前账户 " + str(r.user) + " 运行的程序共 " + impList.length + " 项";
+  if (done > 0) info += "（其中 " + done + " 项已在监控）";
+  info += "；命令行相同的多个进程合并为一项";
+  if (r.hidden > 0) info += "；已隐藏 " + r.hidden + " 个系统目录下的进程";
+  $(#imp-info).text = info + "。";
+  renderImport();
+}
+
+function impMatch(c, q) {
+  if (!q) return true;
+  var hay = (str(c.name) + " " + str(c.desc) + " " + str(c.cmdline)).toLowerCase();
+  return hay.indexOf(q) >= 0;
+}
+
+function renderImport() {
+  var q = str($(#imp-q).value).trim().toLowerCase();
+  var html = "";
+  for (var i = 0; i < impList.length; ++i) {
+    var c = impList[i];
+    if (!impMatch(c, q)) continue;
+    var cls = c.monitored ? "irow done" : (impPicked[c.key] ? "irow on" : "irow");
+    var cmd = c.monitored ? "" : " cmd='imp-pick' data-id='" + c.key + "'";
+    var tags = "<span class='chip'>PID " + c.pid + "</span>";
+    if (c.count > 1) tags += "<span class='chip'>" + c.count + " 个进程</span>";
+    if (c.is32) tags += "<span class='chip'>32 位</span>";
+    tags += "<span class='chip'>" + esc(c.mem) + "</span>";
+    if (c.listen) tags += "<span class='chip opt'>◉ " + esc(c.listen) + "</span>";
+    if (c.monitored) tags += "<span class='chip ok'>已在监控</span>";
+    if (c.partial) tags += "<span class='chip bad'>命令行读取失败，仅导入路径</span>";
+    var desc = str(c.desc);
+    var showDesc = desc && desc.toLowerCase() != (str(c.name) + ".exe").toLowerCase() && desc.toLowerCase() != str(c.name).toLowerCase();
+    var sub = "启动于 " + esc(c.started) + " · 工作目录 " + (c.workDir ? esc(c.workDir) : "程序所在目录");
+    html += "<div class='" + cls + "'" + cmd + "><div class='ck'>" + (impPicked[c.key] || c.monitored ? "✓" : "") + "</div>" +
+            "<div class='ibody'><div class='ihead'><span class='iname'>" + esc(c.name) + "</span>" +
+            (showDesc ? "<span class='idesc'>" + esc(desc) + "</span>" : "") + tags + "</div>" +
+            "<div class='icmd mono' title='" + esc(c.cmdline) + "'>" + esc(c.cmdline) + "</div>" +
+            "<div class='isub'>" + sub + "</div></div></div>";
+  }
+  if (!html) html = "<div class='none'>" + (impList.length ? "没有匹配的程序" : "NO PROGRAMS · 没有可导入的程序") + "</div>";
+  $(#imp-list).html = html;
+  renderImpCount();
+}
+
+function impSelected() {
+  var keys = [];
+  for (var i = 0; i < impList.length; ++i)
+    if (impPicked[impList[i].key]) keys.push(impList[i].key);
+  return keys;
+}
+
+function renderImpCount() {
+  var n = impSelected().length;
+  $(#imp-count).text = n > 0 ? "已选 " + n + " 项" : "";
+  $(#imp-go).text = n > 0 ? "导入并接管（" + n + "）" : "导入";
+}
+
+function setImpMode(m) {
+  impMode = (m == "immediate") ? "immediate" : "backoff";
+  setToggle($(#i-backoff), impMode == "backoff");
+  setToggle($(#i-immediate), impMode == "immediate");
+}
+
+function pickAll(on) {
+  if (!on) { impPicked = {}; renderImport(); return; }
+  var q = str($(#imp-q).value).trim().toLowerCase();
+  for (var i = 0; i < impList.length; ++i) {
+    var c = impList[i];
+    if (!c.monitored && impMatch(c, q)) impPicked[c.key] = true;
+  }
+  renderImport();
+}
+
+function doImport() {
+  var keys = impSelected();
+  if (keys.length == 0) { $(#imp-err).text = "✕ 请先勾选要导入的程序"; return; }
+  var r = view.importApps(keys.join(" "), impMode, isOn($(#i-ports)));
+  if (!r.ok) { $(#imp-err).text = "✕ " + r.msg; return; }
+  closeDlgs();
+  toast(r.msg, r.msg.indexOf("失败") >= 0);
+}
+
+/* ---------- 设置 ---------- */
+
+function openSettings() {
+  $(#s-webhook).value = str(state.webhook);
+  $(#s-machine).value = str(state.machine);
+  $(#s-machine).attributes["placeholder"] = "默认：" + str(state.hostname);
+  setToggle($(#s-autorun), state.autorun);
+  $(#s-cpu).value = str(state.settings.cpuLimit);
+  $(#s-mem).value = str(state.settings.memLimit);
+  $(#s-sustain).value = str(state.settings.hostSustain);
+  $(#s-conn).value = str(state.settings.connLimit);
+  $(#set-err).text = "";
+  openDlg($(#dlg-set));
+}
+
+function saveSettings() {
+  var r = view.saveSettings(str($(#s-webhook).value), str($(#s-machine).value), isOn($(#s-autorun)),
+    str($(#s-cpu).value), str($(#s-mem).value), str($(#s-sustain).value), str($(#s-conn).value));
+  if (!r.ok) { $(#set-err).text = "✕ " + r.msg; return; }
+  closeDlgs();
+  toast(r.msg);
+}
+
+function askConfirm(title, text, okText, action) {
+  $(#cf-title).text = title;
+  $(#cf-text).text = text;
+  $(#cf-ok).text = okText;
+  confirmAction = action;
+  openDlg($(#dlg-confirm));
+}
+
+/* ---------- 事件 ---------- */
+
+function doCmd(cmd, id, el = null) {
+  if (cmd == "toggle") { if (el) el.attributes.toggleClass("on"); return; }
+  if (cmd == "mode") { setMode(id); return; }
+  if (cmd == "imode") { setImpMode(id); return; }
+  if (cmd == "imp-pick") {
+    if (impPicked[id]) delete impPicked[id]; else impPicked[id] = true;
+    renderImport();
+    return;
+  }
+  if (cmd == "imp-all") { pickAll(true); return; }
+  if (cmd == "imp-none") { pickAll(false); return; }
+  if (cmd == "imp-scan") { $(#imp-err).text = ""; scanImport(); return; }
+  if (cmd == "import") { openImport(); return; }
+  if (cmd == "win-min") { view.winCtl("min"); return; }
+  if (cmd == "win-max") { setMaxed(view.winCtl("max")); return; }
+  if (cmd == "hide") { view.hideWindow(); return; }
+  if (cmd == "imp-go") { doImport(); refresh(); return; }
+  if (cmd == "add") openEditor("");
+  else if (cmd == "edit") openEditor(id);
+  else if (cmd == "close") closeDlgs();
+  else if (cmd == "save-app") saveApp(false);
+  else if (cmd == "save-start") saveApp(true);
+  else if (cmd == "browse-exe") browseExe();
+  else if (cmd == "browse-dir") browseDir();
+  else if (cmd == "settings") openSettings();
+  else if (cmd == "save-set") saveSettings();
+  else if (cmd == "logs") view.openLogs();
+  else if (cmd == "folder") view.openFolder(id);
+  else if (cmd == "startall") { view.startAll(); toast("正在启动全部程序"); }
+  else if (cmd == "test") { var r = view.testPush(); toast(r.msg); }
+  else if (cmd == "start") { view.startApp(id); toast("正在启动"); }
+  else if (cmd == "stop") {
+    var a = findApp(id);
+    askConfirm("停止程序", "确定要停止“" + (a ? a.name : "") + "”吗？\n停止会结束该进程（含子进程），并暂停对它的监控。", "停止", function() {
+      view.stopApp(id); toast("正在停止");
+    });
+  }
+  else if (cmd == "restart") { view.restartApp(id); toast("正在重启"); }
+  else if (cmd == "remove") {
+    var b = findApp(id);
+    askConfirm("删除程序", "确定从监控列表中删除“" + (b ? b.name : "") + "”吗？\n删除只会停止监控，不会结束正在运行的进程。", "删除", function() {
+      view.removeApp(id); toast("已删除");
+    });
+  }
+  else if (cmd == "confirm-ok") {
+    var act = confirmAction;
+    confirmAction = null;
+    closeDlgs();
+    if (act) act();
+  }
+  else if (cmd == "quit") {
+    askConfirm("退出进程守护", "退出后将不再监控任何程序（被监控的程序会继续运行）。\n确定退出吗？", "退出", function() {
+      view.quitApp();
+    });
+  }
+  refresh();
+}
+
+self.on("click", "[cmd]", function(evt) {
+  doCmd(this.attributes["cmd"], str(this.attributes["data-id"]), this);
+  return true;
+});
+
+self.on("change", "input#imp-q", function() { renderImport(); return true; });
+
+self.on("keydown", function(evt) {
+  if (evt.keyCode == Event.VK_ESCAPE) { closeDlgs(); return true; }
+  return false;
+});
+
+function self.ready() {
+  $(body).paintBackground = paintGrid;
+  $(#radar).paintContent = paintRadar;
+  $(#g-cpu).paintBackground = function(gfx) { return paintRing(this, gfx, "cpu"); };
+  $(#g-mem).paintBackground = function(gfx) { return paintRing(this, gfx, "mem"); };
+  $(#spark).paintContent = paintSpark;
+  refresh();
+  self.timer(1000ms, function() { refresh(); return true; });
+  $(#radar).timer(40ms, function() { radarAngle += 0.07; this.refresh(); return true; });
+  $(#g-cpu).timer(40ms, function() { tickGauges(); return true; });
+  $(#live).timer(900ms, function() { $(body).attributes.toggleClass("beat"); return true; });
+  $(#hline).timer(8000ms, function() { sweepScan(); return true; });
+  sweepScan();
+}
+
+</script>
+</body>
+</html>
