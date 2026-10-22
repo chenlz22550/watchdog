@@ -55,7 +55,7 @@ jobs:
         run: |
           mkdir -p out
           for a in x64 x86; do
-            cp README.md LICENSE "dist/$a/"
+            cp README.md README.en.md LICENSE "dist/$a/"
             (cd "dist/$a" && zip -9 -q -r "../../out/watchdog-$VERSION-win-$a.zip" .)
           done
           (cd out && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
@@ -80,6 +80,7 @@ jobs:
 
           解压后直接运行 `watchdog.exe`（需与 `sciter.dll` 在同一目录），在"设置"里填写企业微信机器人 Webhook 并点"测试推送"。
           配置和日志写在 exe 所在目录，请放在有写权限的位置。
+          压缩包内有中文 `README.md` 和英文 `README.en.md`。
           EOF
           gh release create "$GITHUB_REF_NAME" out/* \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes --verify-tag
