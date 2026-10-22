@@ -293,8 +293,9 @@
   .dialog.wide { width: 780px; }
   .itools { flow: horizontal; vertical-align: middle; border-spacing: 6px; }
   #imp-q { width: *; }
+  /* 候选可能很多，要有可拖动的滚动条，不能只靠滚轮 */
   #imp-list {
-    height: 300px; overflow-y: hidden-scroll; flow: vertical; border-spacing: 4px;
+    height: 300px; overflow-y: auto; flow: vertical; border-spacing: 4px;
     border: 1px solid #DFE6F0; border-radius: 8px; padding: 6px; background: #F7FAFD;
   }
   .irow {
